@@ -1,6 +1,8 @@
 var zoninator = {};
 
-(function($, window, undefined) {
+;(function($, window, undefined) {
+    var zoninatorOptions = window.zoninatorOptions || {},
+		zonePostTemplate = _.template($('#zoninator-zone-post-tpl').html());
 
 	zoninator.init = function() {
 		zoninator.autocompleteCache = {};
@@ -25,14 +27,27 @@ var zoninator = {};
 			zoninator.updateLatest();
 		});
 
-		// Update the currentPostOrder property which keeps track of the list order internally
+        if (zoninatorOptions.adminZonePosts) {
+			zoninator.$zonePostsList.html('');
+			_(zoninatorOptions.adminZonePosts)
+				.chain()
+				.sortBy(function (post) {
+					return post.position.current_position;
+				})
+				.each(function (adminZonePost) {
+					var $post = zoninator.renderPost(adminZonePost);
+					$post.appendTo(zoninator.$zonePostsList);
+				}).value();
+
+		}
+
 		zoninator.updatePostOrder();
 
 		// Bind actions to buttons
 		zoninator.initZonePost(zoninator.$zonePostsList.children());
 
-		// Initialize sortable - call reorderPosts method when the user drops a post element
-		if (!zoninator.$zonePostsWrap.hasClass('readonly')) {
+		// Initialize sortable
+		if(!zoninator.$zonePostsWrap.hasClass('readonly')) {
 			zoninator.$zonePostsList.sortable({
 				stop                  : zoninator.reorderPosts
 				, placeholder         : 'ui-state-highlight'
@@ -57,11 +72,12 @@ var zoninator = {};
 		$('#zone-info').submit(function(e) {
 			var $form = $(this);
 			var $name = $form.find('input[name="name"]');
-			if (!$name.val().trim()) {
-				$name.closest('.zone-field').addClass('error');
+
+			if( !$name.val().trim() ) {
+				$name.closest( '.zone-field' ).addClass('error');
 				return false;
 			} else {
-				$name.closest('.zone-field').removeClass('error');
+				$name.closest( '.zone-field' ).removeClass('error');
 			}
 		});
 
@@ -76,7 +92,6 @@ var zoninator = {};
 				$this.find('[value="' + post_id + '"]').remove();
 			}
 		});
-
 
 		// Initialize autocomplete
 		if (zoninator.$zonePostSearch.length) {
@@ -110,10 +125,10 @@ var zoninator = {};
 						// Allow developers to hook onto the request
 						zoninator.$zonePostSearch.trigger('search.request', request);
 
-						zoninator.autocompleteAjax = $.getJSON(ajaxurl, request, function(data, status, xhr) {
-							zoninator.autocompleteCache[term] = data;
-							if (xhr === zoninator.autocompleteAjax) {
-								response(data);
+						zoninator.autocompleteAjax = $.getJSON( zoninatorOptions.restApiUrl + '/posts/search', request, function( data, status, xhr ) {
+							zoninator.autocompleteCache[ term ] = data;
+							if ( xhr === zoninator.autocompleteAjax ) {
+								response( data );
 							}
 							zoninator.$zonePostSearch.trigger('loading.end');
 						});
@@ -162,13 +177,13 @@ var zoninator = {};
 	}
 
 	zoninator.updateLatest = function() {
-
-		zoninator.$zonePostSearch.trigger('loading.start');
-		zoninator.ajax('update_recent', {
-			zone_id: zoninator.getZoneId(),
-			cat    : zoninator.getAdvancedCat(),
-			date   : zoninator.getAdvancedDate()
-		}, zoninator.addUpdateLatestSuccessCallback);
+        zoninator.$zonePostSearch.trigger('loading.start');
+		zoninator.restAjax('/posts/recent',
+			'GET', 'update_recent', {
+				zone_id: zoninator.getZoneId(),
+				cat: zoninator.getAdvancedCat(),
+				date: zoninator.getAdvancedDate()
+			}, zoninator.addUpdateLatestSuccessCallback);
 	}
 
 	zoninator.addUpdateLatestSuccessCallback = function(returnData) {
@@ -182,11 +197,8 @@ var zoninator = {};
 	zoninator.addPost = function(postId) {
 
 		zoninator.$zonePostSearch.trigger('loading.start');
-
-		zoninator.ajax('add_post', {
-			zone_id  : zoninator.getZoneId()
-			, post_id: postId
-		}, zoninator.addPostSuccessCallback);
+        zoninator.restAjax('/zones/' + zoninator.getZoneId() + '/posts',
+			'POST', 'add_post', {post_id: postId}, zoninator.addPostSuccessCallback);
 
 	}
 
@@ -195,11 +207,10 @@ var zoninator = {};
 		zoninator.$zonePostSearch.trigger('loading.end');
 
 		// Add Post to List
-		var $post = $(returnData.content);
+		var $post = zoninator.renderPost(returnData.content);
 		$post.hide()
 			.appendTo(zoninator.$zonePostsList)
-			.fadeIn()
-		;
+			.fadeIn();
 
 		zoninator.initZonePost($post);
 
@@ -223,20 +234,18 @@ var zoninator = {};
 
 	zoninator.removePost = function(postId) {
 		zoninator.getPost(postId).trigger('loading.start');
-
-		zoninator.ajax('remove_post', {
-			zone_id  : zoninator.getZoneId()
-			, post_id: postId
-		}, zoninator.removePostSuccessCallback);
+        zoninator.restAjax('/zones/' + zoninator.getZoneId() + '/posts/' + postId,
+			'DELETE', 'remove_post', {}, zoninator.removePostSuccessCallback);
 	}
 
-	zoninator.removePostSuccessCallback = function(returnData, originalData) {
-		var postId = originalData.post_id;
+	zoninator.removePostSuccessCallback = function(returnData) {
+		var postId = returnData.post_id;
 
 		zoninator.getPost(postId).fadeOut('slow', function() {
 			$(this).remove();
-			if (zoninator.getZonePostIds().length)
-				zoninator.updatePostOrder(true);
+			if ( zoninator.getZonePostIds().length ) {
+                zoninator.updatePostOrder(true);
+            }
 			zoninator.$zonePostsWrap.trigger('loading.end');
 		});
 	}
@@ -244,11 +253,9 @@ var zoninator = {};
 	zoninator.reorderPosts = function() {
 		// Get list of post ids from the DOM
 		var zoneId = zoninator.getZoneId()
-			, postIds = zoninator.getZonePostIds()
-			;
-
-		// Reorder only if DOM list has changed compared to internal list
-		if (!compareArrays(postIds, zoninator.getPostOrder())) {
+			, postIds = zoninator.getZonePostIds();
+		// Reorder only if changed
+		if(!compareArrays(postIds, zoninator.getPostOrder())) {
 			var data = {
 				zone_id: zoneId
 				, posts: postIds
@@ -257,7 +264,8 @@ var zoninator = {};
 			zoninator.$zonePostsWrap.trigger('loading.start');
 
 			// make ajax call to save order
-			zoninator.ajax('reorder_posts', data, zoninator.reorderPostsSuccessCallback);
+            zoninator.restAjax('/zones/' + zoninator.getZoneId() + '/posts/order',
+				'PUT', 'reorder_posts', data, zoninator.reorderPostsSuccessCallback);
 		}
 	}
 
@@ -270,9 +278,8 @@ var zoninator = {};
 	}
 
 	zoninator.updateLock = function() {
-		zoninator.ajax('update_lock', {
-			zone_id: zoninator.getZoneId()
-		}, function(returnData, originalData) {
+        var resource = '/zones/' + zoninator.getZoneId() + '/lock';
+		zoninator.restAjax(resource, 'PUT', 'update_lock', {}, function(returnData, originalData) {
 			zoninator.currentLockPeriod += zoninator.heartbeatInterval;
 
 			// We want to set a max to avoid people leaving their tabs open and then running away for long periods
@@ -328,13 +335,42 @@ var zoninator = {};
 		$.ajax(params);
 	}
 
+    zoninator.renderPost = function (content) {
+        return $(zonePostTemplate({
+            post_id: content.post_id,
+            info: content.info,
+            position: content.position
+        }));
+    };
+
+    zoninator.restAjax = function (endpoint, method, action, data, successCallback, errorCallback) {
+		if (!data) {
+			data = {};
+		}
+
+		zoninator.$zonePostSearch.trigger( 'zoninator.ajax', [ action, data ] );
+
+		return $.ajax( {
+			url: zoninatorOptions.restApiUrl + endpoint,
+			method: method,
+			beforeSend: function ( xhr ) {
+				xhr.setRequestHeader( 'X-WP-Nonce', zoninatorOptions.restApiNonce );
+			},
+			success: function(returnData) {
+				zoninator.ajaxSuccessCallback(returnData, data, successCallback, errorCallback);
+			},
+			error: function(returnData) {
+				zoninator.ajaxErrorCallback(returnData, data, successCallback, errorCallback);
+			},
+			data:data
+		} );
+	};
+
 	zoninator.ajaxSuccessCallback = function(returnData, originalData, successCallback, errorCallback) {
 		if (typeof(returnData) === 'undefined' || !returnData.status) {
 			// If we didn't get a valid return, it's probably an error
 			return zoninator.ajaxErrorCallback(returnData, originalData, successCallback, errorCallback);
 		}
-
-		//console.log('ajaxSuccessCallback', returnData, originalData);
 
 		if (originalData.action === 'zoninator_reorder_posts') {
 			setTimeout(function() {
@@ -357,7 +393,7 @@ var zoninator = {};
 		if (returnData.nonce)
 			zoninator.updateAjaxNonce(returnData.nonce);
 
-		if (typeof(successCallback) === 'function') {
+		if(typeof(successCallback) === 'function') {
 			return successCallback(returnData, originalData);
 		} else {
 			alert(returnData.content);
@@ -373,7 +409,6 @@ var zoninator = {};
 		}
 
 		//console.log('ajaxErrorCallback', returnData, originalData);
-
 		if (originalData.action === 'zoninator_reorder_posts') {
 			zoninator.$zonePostsSaveInfo
 				.removeClass('notice-info')
@@ -516,7 +551,6 @@ var zoninator = {};
 		var $this = $(this),
 			currentLabel = $(this).text(),
 			altLabel = $(this).data('alt-label');
-
 		$('.zone-advanced-search-filters-wrapper').toggle();
 
 		$this.text(altLabel).data('alt-label', currentLabel);
