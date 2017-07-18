@@ -41,7 +41,6 @@ define( 'ZONINATOR_REST_API_NAMESPACE', 'zoninator/v1' );
 
 require_once( ZONINATOR_PATH . '/functions.php' );
 require_once( ZONINATOR_PATH . '/widget.zone-posts.php');
-require_once( ZONINATOR_PATH . '/class-zoninator-rest-api-controller.php' );
 
 class Zoninator
 {
@@ -62,12 +61,11 @@ class Zoninator
 	var $posts_per_page = 10;
 
     /**
-	 * @var null|Zoninator_Rest_Api_Controller
+	 * @var null|Zoninator_Api
 	 */
-	public $rest_api_controller = null;
+	public $rest_api = null;
 
 	function __construct() {
-        $this->rest_api_controller = new Zoninator_Rest_Api_Controller( $this );
 
 		add_action( 'init', array( $this, 'init' ), 99 ); // init later after other post types have been registered
 
@@ -82,6 +80,8 @@ class Zoninator
 		add_action( 'split_shared_term', array( $this, 'split_shared_term' ), 10, 4 );
 
 		$this->default_post_types = array( 'post' );
+		require_once( ZONINATOR_PATH . '/includes/class-zoninator-api.php' );
+		$this->rest_api = new Zoninator_Api( $this );
 	}
 
 	function add_zone_feed() {
@@ -129,8 +129,6 @@ class Zoninator
 		# Add default advanced search fields
 		add_action( 'zoninator_advanced_search_fields', array( $this, 'zone_advanced_search_cat_filter' ) );
 		add_action( 'zoninator_advanced_search_fields', array( $this, 'zone_advanced_search_date_filter' ), 20 );
-
-        add_action( 'rest_api_init', array( $this->rest_api_controller, 'register_routes' ) );
 
 		do_action( 'zoninator_post_init' );
 	}
@@ -876,6 +874,12 @@ class Zoninator
 		return new WP_Error( 'invalid-zone', __( 'Sorry, that zone doesn\'t exist.', 'zoninator' ) );
 	}
 
+	/**
+	 * @param $zone
+	 * @param $posts
+	 * @param bool $append
+	 * @return bool|WP_Error
+	 */
 	function add_zone_posts( $zone, $posts, $append = false ) {
 		$zone = $this->get_zone( $zone );
 		$meta_key = $this->get_zone_meta_key( $zone );
@@ -906,8 +910,14 @@ class Zoninator
 		clean_term_cache( $this->get_zone_id( $zone ), $this->zone_taxonomy ); // flush cache for our zone term and related APC caches
 
 		do_action( 'zoninator_add_zone_posts', $posts, $zone );
+		return true;
 	}
 
+	/**
+	 * @param $zone
+	 * @param null $posts
+	 * @return bool|WP_Error
+	 */
 	function remove_zone_posts( $zone, $posts = null ) {
 		$zone = $this->get_zone( $zone );
 		$meta_key = $this->get_zone_meta_key( $zone );
@@ -1335,13 +1345,16 @@ class Zoninator
 	}
 
 	private function filter_zone_feed_fields( $results ) {
-
+		$filtered_results = array();
 		$whitelisted_fields = array( 'ID', 'post_date', 'post_title', 'post_content', 'post_excerpt', 'post_status', 'guid' );
 
 		$i = 0;
 		foreach ( $results as $result ) {
+			if ( ! isset( $filtered_results[ $i ] ) ) {
+				$filtered_results[$i] = new stdClass();
+			}
 			foreach( $whitelisted_fields as $field ) {
-					$filtered_results[$i]->$field = $result->$field;
+				$filtered_results[$i]->$field = $result->$field;
 			}
 			$i++;
 		}
@@ -1388,9 +1401,6 @@ class Zoninator
 
 		$wp_header_to_desc[$status] = $official_message;
 	}
-
-
-
 
 	// TODO: Caching needs to be testing properly before being implemented!
 	function get_zone_cache_key( $zone, $args = array() ) {
@@ -1594,7 +1604,17 @@ p {
 
 register_activation_hook( __FILE__, array( 'Zoninator', 'plugin_activation' ) );
 
-global $zoninator;
-$zoninator = new Zoninator;
+//global $zoninator;
+//$zoninator = new Zoninator;
+
+function Zoninator() {
+	global $zoninator;
+	if ( ! isset( $zoninator ) ) {
+		$zoninator = new Zoninator;
+	}
+	return $zoninator;
+}
+
+Zoninator();
 
 endif;

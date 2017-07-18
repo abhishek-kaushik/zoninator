@@ -315,11 +315,11 @@ var zoninator = {};
 			, data    : data
 			, dataType: 'json'
 			, type    : 'POST'
-			, success : function(returnData) {
-				zoninator.ajaxSuccessCallback(returnData, data, successCallback, errorCallback);
+			, success : function(returnData, status) {
+				zoninator.ajaxSuccessCallback(returnData, status, data, successCallback, errorCallback);
 			}
-			, error   : function(returnData) {
-				zoninator.ajaxErrorCallback(returnData, data, successCallback, errorCallback);
+			, error   : function(returnData, status) {
+				zoninator.ajaxErrorCallback(returnData, status, data, successCallback, errorCallback);
 			}
 		}
 		params = $.extend({}, defaultParams, params);
@@ -356,20 +356,22 @@ var zoninator = {};
 			beforeSend: function ( xhr ) {
 				xhr.setRequestHeader( 'X-WP-Nonce', zoninatorOptions.restApiNonce );
 			},
-			success: function(returnData) {
-				zoninator.ajaxSuccessCallback(returnData, data, successCallback, errorCallback);
+			success: function(returnData, status, jqXhr) {
+                console.log(returnData, status, jqXhr);
+				zoninator.ajaxSuccessCallback(returnData, jqXhr.status, data, successCallback, errorCallback);
 			},
-			error: function(returnData) {
-				zoninator.ajaxErrorCallback(returnData, data, successCallback, errorCallback);
+			error: function(jqXHR, status, errorThrown) {
+                console.log(jqXHR, status, errorThrown);
+				zoninator.ajaxErrorCallback(errorThrown, jqXhr.status, data, successCallback, errorCallback);
 			},
 			data:data
 		} );
 	};
 
-	zoninator.ajaxSuccessCallback = function(returnData, originalData, successCallback, errorCallback) {
-		if (typeof(returnData) === 'undefined' || !returnData.status) {
+	zoninator.ajaxSuccessCallback = function(returnData, status, originalData, successCallback, errorCallback) {
+		if (typeof(returnData) === 'undefined' || status > 399 || status === 0) {
 			// If we didn't get a valid return, it's probably an error
-			return zoninator.ajaxErrorCallback(returnData, originalData, successCallback, errorCallback);
+			return zoninator.ajaxErrorCallback(returnData, status, originalData, successCallback, errorCallback);
 		}
 
 		if (originalData.action === 'zoninator_reorder_posts') {
@@ -400,7 +402,7 @@ var zoninator = {};
 		}
 	}
 
-	zoninator.ajaxErrorCallback = function(returnData, originalData, successCallback, errorCallback) {
+	zoninator.ajaxErrorCallback = function(returnData, status, originalData, successCallback, errorCallback) {
 		if (typeof(returnData) === 'undefined' || !returnData) {
 			returnData = {
 				status   : 0

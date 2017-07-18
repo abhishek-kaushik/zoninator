@@ -8,8 +8,9 @@ if ( ! $_tests_dir ) {
 require_once $_tests_dir . '/includes/functions.php';
 
 function _manually_load_plugin() {
-	$file = dirname( __FILE__ ) . '/../../zoninator.php';
-	require realpath( $file );
+	$thispath = dirname( __FILE__ );
+	$file = $thispath . '/../zoninator.php';
+	require_once realpath( $file );
 }
 tests_add_filter( 'muplugins_loaded', '_manually_load_plugin' );
 
